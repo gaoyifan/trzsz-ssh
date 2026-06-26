@@ -25,9 +25,16 @@ SOFTWARE.
 package tssh
 
 import (
+	"fmt"
+	"io"
+	"net"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/trzsz/tsshd/tsshd"
+	"golang.org/x/crypto/ssh"
 )
 
 func TestParseTsshdPortRanges(t *testing.T) {
@@ -62,4 +69,78 @@ func TestParseTsshdPortRanges(t *testing.T) {
 	assert.Equal([][2]uint16(nil), parseTsshdPortRanges("10 - 0"))
 	assert.Equal([][2]uint16(nil), parseTsshdPortRanges("10 - - 11"))
 	assert.Equal([][2]uint16{{10, 11}}, parseTsshdPortRanges("10 - 11 -"))
+}
+
+type testWriteCloser struct{}
+
+func (testWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
+func (testWriteCloser) Close() error                { return nil }
+
+type testSshSession struct{}
+
+func (testSshSession) Wait() error                        { return fmt.Errorf("exit status 127") }
+func (testSshSession) Close() error                       { return nil }
+func (testSshSession) Shell() error                       { return nil }
+func (testSshSession) Run(string) error                   { return nil }
+func (testSshSession) Start(string) error                 { return nil }
+func (testSshSession) WindowChange(int, int) error        { return nil }
+func (testSshSession) Setenv(string, string) error        { return nil }
+func (testSshSession) StdinPipe() (io.WriteCloser, error) { return testWriteCloser{}, nil }
+func (testSshSession) StdoutPipe() (io.Reader, error)     { return strings.NewReader(""), nil }
+func (testSshSession) StderrPipe() (io.Reader, error) {
+	return strings.NewReader("tsshd: command not found"), nil
+}
+func (testSshSession) Output(string) ([]byte, error)                        { return nil, nil }
+func (testSshSession) CombinedOutput(string) ([]byte, error)                { return nil, nil }
+func (testSshSession) RequestPty(string, int, int, ssh.TerminalModes) error { return nil }
+func (testSshSession) SendRequest(string, bool, []byte) (bool, error)       { return false, nil }
+func (testSshSession) RequestSubsystem(string) error                        { return nil }
+func (testSshSession) RedrawScreen(bool) error                              { return nil }
+func (testSshSession) GetTerminalWidth() int                                { return 0 }
+func (testSshSession) GetExitCode() int                                     { return 0 }
+
+type testSshClient struct {
+	closed bool
+}
+
+func (c *testSshClient) Wait() error                     { return nil }
+func (c *testSshClient) Close() error                    { c.closed = true; return nil }
+func (c *testSshClient) NewSession() (SshSession, error) { return testSshSession{}, nil }
+func (c *testSshClient) DialTimeout(string, string, time.Duration) (net.Conn, error) {
+	return nil, nil
+}
+func (c *testSshClient) Listen(string, string) (net.Listener, error) { return nil, nil }
+func (c *testSshClient) ListenUDP(string, string) (PacketListener, error) {
+	return nil, nil
+}
+func (c *testSshClient) HandleChannelOpen(string) <-chan ssh.NewChannel { return nil }
+func (c *testSshClient) SendRequest(string, bool, []byte) (bool, []byte, error) {
+	return false, nil, nil
+}
+func (c *testSshClient) DialUDP(string, string, time.Duration) (tsshd.PacketConn, error) {
+	return nil, nil
+}
+
+func TestUdpLoginKeepsTCPClientOpenWhenTsshdStartFails(t *testing.T) {
+	enableWarning := enableWarningLogging
+	origUserConfig := userConfig
+	enableWarningLogging = false
+	userConfig = &tsshConfig{}
+	defer func() {
+		enableWarningLogging = enableWarning
+		userConfig = origUserConfig
+	}()
+
+	client := &testSshClient{}
+	param := &sshParam{
+		args: &sshArgs{Destination: "server", UDP: true},
+		host: "server",
+		port: "22",
+	}
+
+	udpClient, err := udpLogin(param, client)
+	assert.Nil(t, udpClient)
+
+	assert.True(t, isTsshdStartHintError(err), "err = %v", err)
+	assert.False(t, client.closed)
 }

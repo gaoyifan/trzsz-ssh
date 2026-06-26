@@ -184,6 +184,12 @@ func (c *sshUdpClient) notifyConnectionLost() {
 var lastJumpUdpClient *sshUdpClient
 var globalUdpAliveTimeout time.Duration
 
+const tsshdStartHint = "Have you installed tsshd on your server?"
+
+func isTsshdStartHintError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), tsshdStartHint)
+}
+
 func quitCallback(name, reason string) {
 	for lastJumpUdpClient == nil || lastJumpUdpClient.sshConn.Load() == nil {
 		time.Sleep(10 * time.Millisecond) // waiting for sshConn to be initialized
@@ -200,8 +206,12 @@ func initGlobalUdpAliveTimeout(args *sshArgs) {
 	debug("init global udp alive timeout [%v] for [%s]", globalUdpAliveTimeout, args.Destination)
 }
 
-func udpLogin(param *sshParam, tcpClient SshClient) (SshClient, error) {
-	defer func() { _ = tcpClient.Close() }()
+func udpLogin(param *sshParam, tcpClient SshClient) (client SshClient, err error) {
+	defer func() {
+		if err == nil || !isTsshdStartHintError(err) {
+			_ = tcpClient.Close()
+		}
+	}()
 
 	args := param.args
 	debug("udp login to [%s] using UDP mode: %s", args.Destination, param.udpMode)

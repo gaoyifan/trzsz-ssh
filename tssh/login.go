@@ -661,11 +661,29 @@ func tcpLogin(param *sshParam, proxy *proxyJump, requireUDP udpModeType) (SshCli
 		if err != nil {
 			return nil, err
 		}
+		if shouldFallbackProxyJumpToTCP(udpModes[i], proxyClient) {
+			param.udpMode = kUdpModeNo
+			disableRemainingProxyUdpModes(udpModes, i+1)
+		}
 		proxy = &proxyJump{client: proxyClient, name: proxyName}
 	}
 	param.proxy = proxy
 	client, err := connectViaProxyJump(param, config)
 	return client, err
+}
+
+func shouldFallbackProxyJumpToTCP(udpMode udpModeType, client SshClient) bool {
+	if udpMode == kUdpModeNo {
+		return false
+	}
+	_, ok := client.(*sshUdpClient)
+	return !ok
+}
+
+func disableRemainingProxyUdpModes(udpModes []udpModeType, start int) {
+	for i := start; i < len(udpModes); i++ {
+		udpModes[i] = kUdpModeNo
+	}
 }
 
 func sshLogin(param *sshParam, proxy *proxyJump, requireUDP udpModeType) (SshClient, error) {
@@ -692,7 +710,17 @@ func sshLogin(param *sshParam, proxy *proxyJump, requireUDP udpModeType) (SshCli
 	}
 
 	// udp login
-	return udpLogin(param, tcpClient)
+	client, err := udpLogin(param, tcpClient)
+	if err == nil {
+		return client, nil
+	}
+
+	if isTsshdStartHintError(err) {
+		warning("falling back to TCP SSH for [%s] because UDP setup failed: %v", param.args.Destination, err)
+		return tcpClient, nil
+	}
+
+	return nil, err
 }
 
 func keepAlive(sshConn *sshConnection) {

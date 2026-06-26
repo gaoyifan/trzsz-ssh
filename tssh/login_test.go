@@ -68,3 +68,19 @@ func TestParseDestination(t *testing.T) {
 	assertDestEqual("[fe80::6358:bbae:26f8:7859]:1022", "", "fe80::6358:bbae:26f8:7859", "1022")
 	assertDestEqual("user@[fe80::6358:bbae:26f8:7859]:1022", "user", "fe80::6358:bbae:26f8:7859", "1022")
 }
+
+func TestShouldFallbackProxyJumpToTCP(t *testing.T) {
+	assert := assert.New(t)
+
+	assert.False(shouldFallbackProxyJumpToTCP(kUdpModeNo, &testSshClient{}))
+	assert.True(shouldFallbackProxyJumpToTCP(kUdpModeYes, &testSshClient{}))
+	assert.False(shouldFallbackProxyJumpToTCP(kUdpModeYes, &sshUdpClient{}))
+}
+
+func TestDisableRemainingProxyUdpModes(t *testing.T) {
+	udpModes := []udpModeType{kUdpModeYes, kUdpModeQuic, kUdpModeKcp}
+
+	disableRemainingProxyUdpModes(udpModes, 1)
+
+	assert.Equal(t, []udpModeType{kUdpModeYes, kUdpModeNo, kUdpModeNo}, udpModes)
+}
