@@ -96,6 +96,13 @@ var stdinInputChan atomic.Pointer[chan []byte]
 
 var enableDebugLogging bool = false
 var enableWarningLogging bool = true
+
+// forceTmuxIntegration makes isRunningTmuxIntegration() report true without
+// relying on the iTerm2 Python API. Set via the --tmux-integration flag, it lets
+// callers (e.g. lazyssh) declare the terminal is in tmux -CC (control mode) so
+// reconnect notifications are wrapped in the tmux %output protocol instead of
+// being written raw, which would otherwise corrupt the control-mode stream.
+var forceTmuxIntegration bool = false
 var currentTerminalWidth atomic.Int32
 
 func initDebugLogFile() bool {
@@ -366,23 +373,30 @@ func warning(format string, a ...any) {
 
 	msg := "Warning: " + fmt.Sprintf(format, a...)
 
-	terminalWidth := int(currentTerminalWidth.Load())
-	if terminalWidth <= 0 {
-		fmt.Fprintf(os.Stderr, "\r\033[0;33m%s\033[0m\033[K\r\n", msg)
-		return
-	}
-
 	if enableDebugLogging {
 		debug("warning: "+format, a...)
 	}
 
-	var paneId string
 	tmux := isRunningTmuxIntegration()
+
+	terminalWidth := int(currentTerminalWidth.Load())
+	if terminalWidth <= 0 && !tmux {
+		fmt.Fprintf(os.Stderr, "\r\033[0;33m%s\033[0m\033[K\r\n", msg)
+		return
+	}
+
+	var paneId string
 	if tmux {
 		paneId, terminalWidth = getTmuxPaneIdAndColumns()
+		if paneId == "" {
+			paneId = currentTmuxPaneId()
+		}
 		if terminalWidth <= 0 {
 			terminalWidth = int(currentTerminalWidth.Load())
 		}
+	}
+	if terminalWidth <= 0 {
+		terminalWidth = 80
 	}
 
 	msgWidth := ansi.StringWidth(msg)
@@ -398,8 +412,15 @@ func warning(format string, a ...any) {
 	buf.WriteString(ansi.EraseLineRight)
 	buf.WriteString(ansi.RestoreCurrentCursorPosition)
 
-	if tmux && logToTmuxIntegration(buf.Bytes(), paneId) {
-		return
+	if tmux {
+		if logToTmuxIntegration(buf.Bytes(), paneId) {
+			return
+		}
+		if forceTmuxIntegration {
+			// In tmux -CC (control mode), raw bytes corrupt the control stream.
+			// Drop the warning when it can't be wrapped in the %output protocol.
+			return
+		}
 	}
 
 	_, _ = os.Stderr.Write(buf.Bytes())

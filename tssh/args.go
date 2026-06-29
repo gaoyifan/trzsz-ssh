@@ -84,6 +84,7 @@ type sshArgs struct {
 	Relay          bool        `arg:"--relay" help:"force trzsz run as a relay on the jump server"`
 	Client         bool        `arg:"--client" help:"force trzsz run as a client on the jump server"`
 	Debug          bool        `arg:"--debug" help:"verbose mode for debugging, same as ssh's -vvv"`
+	TmuxControl    bool        `arg:"--tmux-integration" help:"[udp] assume tmux -CC (control mode); route notifications via tmux protocol"`
 	Zmodem         bool        `arg:"--zmodem" help:"enable zmodem lrzsz ( rz / sz ) feature"`
 	Dns            string      `arg:"--dns" placeholder:"[udp://|tcp://]host[:port]" help:"custom DNS server"`
 	UDP            bool        `arg:"--udp" help:"ssh over UDP like mosh (default: QUIC)"`

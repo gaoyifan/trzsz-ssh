@@ -50,6 +50,10 @@ func tmuxDebug(format string, a ...any) {
 }
 
 func isRunningTmuxIntegration() bool {
+	if forceTmuxIntegration {
+		return true
+	}
+
 	iterm2Session := getIterm2Session()
 	if iterm2Session == nil {
 		return false
@@ -64,6 +68,20 @@ func isRunningTmuxIntegration() bool {
 	}
 
 	return tmux
+}
+
+// currentTmuxPaneId returns the tmux pane id parsed from the control-mode input
+// stream (via the UDP notification interceptor), used as a fallback when the
+// iTerm2 Python API is unavailable to resolve the pane id.
+func currentTmuxPaneId() string {
+	client := lastJumpUdpClient
+	if client == nil || client.notifInterceptor == nil {
+		return ""
+	}
+	if p := client.notifInterceptor.tmuxPaneId.Load(); p != nil {
+		return *p
+	}
+	return ""
 }
 
 func logToTmuxIntegration(buf []byte, paneId string) bool {

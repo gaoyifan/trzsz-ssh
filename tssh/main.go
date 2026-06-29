@@ -274,6 +274,11 @@ func TsshMain(argv []string) int {
 		debug("tssh version: %s", getTsshVersion())
 	}
 
+	// force tmux -CC (control mode) integration handling
+	if args.TmuxControl {
+		forceTmuxIntegration = true
+	}
+
 	// cleanup on exit
 	defer cleanupOnExit()
 
